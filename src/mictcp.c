@@ -105,6 +105,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
  */
 int mic_tcp_recv (int socket, char* mesg, int max_mesg_size) // v1
 {
+
     mic_tcp_payload app_buff; 
     app_buff.data=mesg; 
     app_buff.size=max_mesg_size;
@@ -134,6 +135,33 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-    app_buffer_put(pdu.payload); 
+    static int ack;
+
+    // creation du message d'ACK
+    // les ack ont comme ID d'aqqitement la meme di aue le message aqqité
+    mic_tcp_pdu pdu = {
+        .header = {
+            .source_port = pdu.header.dest_port,
+            .dest_port = pdu.header.source_port,
+            .seq_num = 0,
+            .ack_num = pdu.header.seq_num,
+            .syn = 0,
+            .ack = 1,
+            .fin = 0
+        },
+        .payload = {
+            .data = NULL,
+            .size = 0
+        }
+    };
+
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
+
+    if ( pdu.header.seq_num == ack ) {
+        ack++;
+        app_buffer_put(pdu.payload);
+    }
+
+    mic_tcp_sock_addr dest; 
+    int res = IP_send(pdu,dest);
 }
