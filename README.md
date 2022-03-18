@@ -87,3 +87,10 @@ Veuillez utiliser, à minima, un tag pour chacune des versions successives de mi
 Aide pour la création d’un dépôt depuis un template : https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template
 
 Manuel d'utilisation de git: https://git-scm.com/docs
+
+
+
+
+# Pourqoi faire un protocole pour transporter de la video ?
+On veut tolerer un pourcentage de pertes et donc on sera capables de transporter la video avec un débit de donnes inferieur.
+
