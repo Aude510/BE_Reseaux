@@ -139,7 +139,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 
     // creation du message d'ACK
     // les ack ont comme ID d'aqqitement la meme di aue le message aqqité
-    mic_tcp_pdu pdu = {
+    mic_tcp_pdu new_pdu = {
         .header = {
             .source_port = pdu.header.dest_port,
             .dest_port = pdu.header.source_port,
@@ -163,5 +163,5 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     }
 
     mic_tcp_sock_addr dest; 
-    int res = IP_send(pdu,dest);
+    int res = IP_send(new_pdu,dest);
 }
