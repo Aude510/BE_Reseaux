@@ -100,7 +100,6 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     // v3 : ne rentrer dans le while que si on est hors du % de pertes acceptables 
     while ( (attente == -1) && !((pdu_ack.header.ack_num)%2==(pdu.header.seq_num+1)%2 )) {
         sent = IP_send(pdu,dest);
-        usleep(TIMEOUT);
         attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
     }
     printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
