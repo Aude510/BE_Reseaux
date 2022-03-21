@@ -2,8 +2,8 @@
 #include <api/mictcp_core.h>
 
 
-#define TIMEOUT 10
-#define LOSS 5 // loss percentage in network 
+#define TIMEOUT 100
+#define LOSS 50 // loss percentage in network
 #define TAILLE_FENETRE 100 // paramètres à faire évoluer 
 #define ACCEPTABLE_LOSS 5
 
@@ -69,7 +69,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     
 
     /* tableau statique initialisé à 0 pour le suivi des paquets perdus */ 
-    static char loss_count[TAILLE_FENETRE] ; 
+//    static char loss_count[TAILLE_FENETRE] ;
 
     mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer 
     mic_tcp_pdu pdu ={
@@ -98,13 +98,13 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
 
     // v3 : ne rentrer dans le while que si on est hors du % de pertes acceptables 
-    while ( (attente == -1) && (pdu_ack.header.ack_num+1!=pdu.header.seq_num) ){
+    while ( (attente == -1) && !((pdu_ack.header.ack_num)%2==(pdu.header.seq_num+1)%2 )) {
         sent = IP_send(pdu,dest);
-        //usleep(TIMEOUT);
-        attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
+        usleep(TIMEOUT);
+        attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
     }
     printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
-    seq++; 
+    seq++;
     return sent;
 }
 
@@ -146,10 +146,12 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-    static int ack = 1;
-     
+    static int ack = 0;
+    mic_tcp_sock_addr dest;
+
+
     // creation du message d'ACK
-    // les ack ont comme ID d'aqqitement la meme di aue le message aqqité
+    // by default we set the value to ack and then if we receive the message we augment it by 1 to demand the new message
     mic_tcp_pdu new_pdu = {
         .header = {
             .source_port = pdu.header.dest_port,
@@ -167,16 +169,16 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     };
 
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
+    printf("received message with seq = %d\n",pdu.header.seq_num);
 
-    if ( pdu.header.seq_num == ack ) { // tod utilizar modulo para evitar los overflows
+    if ( pdu.header.seq_num%2 == ack%2 ) {
         ack+=1;
+        new_pdu.header.ack_num = ack;
         app_buffer_put(pdu.payload);
     }
 // avec le printf : ça marche avec tsock_texte
 // sans le printf, même avec le sleep, ça marche pas : perte du paquet en boucle/ack non reçus? 
-    printf("received message with seq = %d\n",pdu.header.seq_num);
-    //usleep(20);
-    mic_tcp_sock_addr dest; 
+    printf("sending ack with ack_num = %d\n",new_pdu.header.ack_num);
+
     int res = IP_send(new_pdu,dest);
-    printf("res process_received_pdu : %d\n",res);
 }
