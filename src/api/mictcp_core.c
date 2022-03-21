@@ -213,7 +213,7 @@ int mic_tcp_core_send(mic_tcp_payload buff)
     if(random > lr_tresh) {
         result = sendto(sys_socket, buff.data, buff.size, 0, (struct sockaddr *)&remote_addr, sizeof(struct sockaddr));
     } else {
-        printf("[MICTCP-CORE] Perte du paquet\n");
+        printf("[MICTCP-CORE] Perte du paquet (Pas envoyé)\n");
     }
 
     return result;

@@ -3,7 +3,7 @@
 
 
 #define TIMEOUT 10
-#define LOSS 50 // loss percentage 
+#define LOSS 5 // loss percentage 
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
