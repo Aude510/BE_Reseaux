@@ -3,7 +3,7 @@
 
 
 #define TIMEOUT 10
-#define LOSS 10 // loss percentage 
+#define LOSS 5 // loss percentage 
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -40,7 +40,7 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr) // V1
 int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr) // V4
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-    return -1;
+    return 0; // todo faire la fonction (ou remettre retour à -1?)
 }
 
 /*
@@ -50,7 +50,7 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr) // V4
 int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-    return -1;
+    return 0; // todo faire la fonction (ou remettre retour à -1?)
 }
 
 /*
@@ -91,8 +91,10 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
     while ( (attente == -1) && (pdu_ack.header.ack_num!=pdu.header.seq_num) ){
         sent = IP_send(pdu,dest); 
+        //usleep(TIMEOUT);
         attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
     }
+    printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
     seq++; 
     return sent;
 }
@@ -135,8 +137,8 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-    static int ack;
-
+    static int ack = 0;
+     
     // creation du message d'ACK
     // les ack ont comme ID d'aqqitement la meme di aue le message aqqité
     mic_tcp_pdu new_pdu = {
@@ -161,7 +163,11 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
         ack++;
         app_buffer_put(pdu.payload);
     }
-
+// avec le printf : ça marche avec tsock_texte
+// sans le printf, même avec le sleep, ça marche pas : perte du paquet en boucle/ack non reçus? 
+    printf("received message with seq = %d\n",pdu.header.seq_num);
+    //usleep(20);
     mic_tcp_sock_addr dest; 
     int res = IP_send(new_pdu,dest);
+    printf("res process_received_pdu : %d\n",res);
 }
