@@ -3,7 +3,9 @@
 
 
 #define TIMEOUT 10
-#define LOSS 5 // loss percentage 
+#define LOSS 5 // loss percentage in network 
+#define TAILLE_FENETRE 100 // paramètres à faire évoluer 
+#define ACCEPTABLE_LOSS 5
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -64,6 +66,11 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 
     // -------------------encapsulation du message ------------------------------------
     static int seq = 0; 
+    
+
+    /* tableau statique initialisé à 0 pour le suivi des paquets perdus */ 
+    static char loss_count[TAILLE_FENETRE] ; 
+
     mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer 
     mic_tcp_pdu pdu ={
         .header = {
@@ -89,8 +96,10 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     int attente = -1; 
     mic_tcp_pdu pdu_ack ;
     attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
-    while ( (attente == -1) && (pdu_ack.header.ack_num!=pdu.header.seq_num) ){
-        sent = IP_send(pdu,dest); 
+
+    // v3 : ne rentrer dans le while que si on est hors du % de pertes acceptables 
+    while ( (attente == -1) && (pdu_ack.header.ack_num+1!=pdu.header.seq_num) ){
+        sent = IP_send(pdu,dest);
         //usleep(TIMEOUT);
         attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
     }
@@ -137,7 +146,7 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-    static int ack = 0;
+    static int ack = 1;
      
     // creation du message d'ACK
     // les ack ont comme ID d'aqqitement la meme di aue le message aqqité
@@ -146,7 +155,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
             .source_port = pdu.header.dest_port,
             .dest_port = pdu.header.source_port,
             .seq_num = 0,
-            .ack_num = pdu.header.seq_num,
+            .ack_num = ack,
             .syn = 0,
             .ack = 1,
             .fin = 0
@@ -160,7 +169,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
 
     if ( pdu.header.seq_num == ack ) {
-        ack++;
+        ack+=1;
         app_buffer_put(pdu.payload);
     }
 // avec le printf : ça marche avec tsock_texte
