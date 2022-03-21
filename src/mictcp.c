@@ -168,7 +168,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
 
-    if ( pdu.header.seq_num == ack ) {
+    if ( pdu.header.seq_num == ack ) { // tod utilizar modulo para evitar los overflows
         ack+=1;
         app_buffer_put(pdu.payload);
     }
