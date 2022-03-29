@@ -1,14 +1,18 @@
 #include <mictcp.h>
 #include <api/mictcp_core.h>
 
+// TODO : faire valider v3 par prof et passer à v4.2
+// v3 marche bien avec texte, video marche pas même avec un pourcent de perte... 
 
 #define TIMEOUT 100
-#define LOSS 10 // loss percentage in network
+#define LOSS 1 // loss percentage in network
 #define TAILLE_FENETRE 100 // paramètres à faire évoluer 
-#define ACCEPTABLE_LOSS 5
-#define NB_RENVOIS 20 // nb de tentatives d'envoi du message avant abandon 
+#define ACCEPTABLE_LOSS 1 //nbs de messages perdus acceptés sur un total de taille_fenêtre 
+//TRY changer nb_renvois pour un nb plus petit 
 
+#define NB_RENVOIS 5 // nb de tentatives d'envoi du message avant abandon 
 
+// TODO : enlever les prints de debug et autres trucs inutiles 
 // variable globale socket initialisée avec valeurs par défaut 
 mic_tcp_sock sk = {-1,-1,{NULL,0,0}}; 
 
@@ -63,6 +67,32 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
     return 0; // todo faire la fonction (ou remettre retour à -1?)
 }
 
+
+
+/* Fonctionnement 
+    ex : après un envoi échoué et seq = 1 on a ce tableau : 
+    [0,1,0,0,0,0,0...]
+    loss_count[1] a été mis à 1 par une perte précédente 
+    le compteur lost_mess ne doit pas être modifié car fenêtre glissante 
+    ex2 : après un envoi réussi et seq = 1 on a ce tableau : 
+    [0,1,0,0,0,0,0...]
+    loss_count[1] a été mis à 1 par une perte précédente 
+    le compteur lost_mess doit être décrémenté car fenêtre glissante 
+    loss_count[1] doit être mis à 0 
+    */ 
+
+void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
+    if (is_lost){
+        *lost_mess+=!loss_count[seq]; 
+        loss_count[seq]=1; 
+    }else{
+        *lost_mess-=loss_count[seq]; 
+        loss_count[seq]=0; 
+    }   
+}
+
+
+
 /*
  * Permet de réclamer l’envoi d’une donnée applicative
  * Retourne la taille des données envoyées, et -1 en cas d'erreur
@@ -76,8 +106,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     static int seq = 0; 
     
 
-    /* tableau statique initialisé à 0 pour le suivi des paquets perdus */ 
-//    static char loss_count[TAILLE_FENETRE] ;
+
 
     mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer (sera variable globale une fois le connect fait)
     mic_tcp_pdu pdu ={
@@ -96,7 +125,13 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
         }
     }; 
 
-    
+
+    //-------------------gestion fiabilité partielle-----------------------
+
+    /* tableau statique initialisé à 0 pour le suivi des paquets perdus */ 
+    static char loss_count[TAILLE_FENETRE] ;
+    // compteur des messages perdus 
+    static int lost_mess = 0 ; 
 
     // ----------------- envoi ----------------------
     int sent = IP_send(pdu,dest); 
@@ -104,17 +139,33 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     int attente = -1; 
     mic_tcp_pdu pdu_ack ;
     attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
-    // tenir le compte du nombre de tentatives de renvoi 
-    int compteur = 0 ; 
-    // v3 : ne rentrer dans le while que si on est hors du % de pertes acceptables 
-    while ( (attente == -1) && !((pdu_ack.header.ack_num)==(pdu.header.seq_num+1)) && compteur < NB_RENVOIS) {
-        sent = IP_send(pdu,dest);
-        attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
-        compteur++; 
+    // on n'a pas reçu le ack ou ce n'est pas le bon, il faut peut-être renvoyer le message 
+    if (attente== -1 || (pdu_ack.header.ack_num)!=(seq+1)){
+        // pas besoin de renvoyer le message 
+        if (lost_mess<ACCEPTABLE_LOSS){
+            update_loss(&lost_mess,loss_count,seq,1);   
+            //sent = -1;  
+        }else{ // renvoi du message 
+            int tentatives = 0 ; 
+            while ( (attente == -1) && !((pdu_ack.header.ack_num)==(pdu.header.seq_num+1)) && tentatives < NB_RENVOIS) {
+                sent = IP_send(pdu,dest);
+                attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
+                tentatives++; 
+            }
+            if (tentatives == NB_RENVOIS) {
+                update_loss(&lost_mess,loss_count,seq,1); 
+                //sent = -1; 
+            }
+        }
+    }else{
+        update_loss(&lost_mess,loss_count,seq,0); 
     }
-    if (compteur == NB_RENVOIS) return -1; 
+    
+
+
+
     // printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
-    seq=(seq+1)%2;
+    seq=(seq+1)%TAILLE_FENETRE;
     return sent;
 }
 
@@ -182,7 +233,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     // printf("received message with seq = %d\n",pdu.header.seq_num);
 
     if ( pdu.header.seq_num == ack ) {
-        ack=(ack+1)%2;
+        ack=(ack+1)%TAILLE_FENETRE;
         new_pdu.header.ack_num = ack;
         app_buffer_put(pdu.payload);
     }
