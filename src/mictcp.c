@@ -3,9 +3,14 @@
 
 
 #define TIMEOUT 100
-#define LOSS 50 // loss percentage in network
+#define LOSS 10 // loss percentage in network
 #define TAILLE_FENETRE 100 // paramètres à faire évoluer 
 #define ACCEPTABLE_LOSS 5
+#define NB_RENVOIS 20 // nb de tentatives d'envoi du message avant abandon 
+
+
+// variable globale socket initialisée avec valeurs par défaut 
+mic_tcp_sock sk = {-1,-1,{NULL,0,0}}; 
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -13,12 +18,13 @@
  */
 int mic_tcp_socket(start_mode sm)
 {
-   int result = -1;
-   printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-   result = initialize_components(sm); /* Appel obligatoire */
-   set_loss_rate(LOSS);
-
-   return result;
+    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
+    if (initialize_components(sm)==-1) return -1; /* Appel obligatoire */
+    set_loss_rate(LOSS);
+    // return un descripteur de socket - variable globale ou statique avec state et sd mises à jour 
+    sk.fd=42; 
+    sk.state=SK_CREATED; 
+    return sk.fd;
 }
 
 /*
@@ -27,12 +33,14 @@ int mic_tcp_socket(start_mode sm)
  */
 int mic_tcp_bind(int socket, mic_tcp_sock_addr addr) // V1   
 {
-    // TODO qu'est ce qu'il faut faire là ?
-   printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-   /*mic_tcp_sock sock; 
-   sock.fd=socket; 
-   sock.addr=addr; */ 
-   return 0; 
+    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
+    if (!(sk.fd == socket && sk.state==SK_CREATED)){
+        return -1; 
+    }
+    sk.addr=addr; 
+    sk.state=BINDED; 
+    return 0; 
+    
 }
 
 /*
@@ -71,10 +79,10 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     /* tableau statique initialisé à 0 pour le suivi des paquets perdus */ 
 //    static char loss_count[TAILLE_FENETRE] ;
 
-    mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer 
+    mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer (sera variable globale une fois le connect fait)
     mic_tcp_pdu pdu ={
         .header = {
-            .source_port=1234, // TODO trouver le vrai source port 
+            .source_port=sk.addr.port, 
             .dest_port=dest.port, // TODO no leer memoria random 
             .seq_num=seq,
             .ack_num=0,
@@ -96,14 +104,17 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     int attente = -1; 
     mic_tcp_pdu pdu_ack ;
     attente = IP_recv(&pdu_ack,&dest,TIMEOUT); 
-
+    // tenir le compte du nombre de tentatives de renvoi 
+    int compteur = 0 ; 
     // v3 : ne rentrer dans le while que si on est hors du % de pertes acceptables 
-    while ( (attente == -1) && !((pdu_ack.header.ack_num)%2==(pdu.header.seq_num+1)%2 )) {
+    while ( (attente == -1) && !((pdu_ack.header.ack_num)==(pdu.header.seq_num+1)) && compteur < NB_RENVOIS) {
         sent = IP_send(pdu,dest);
         attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
+        compteur++; 
     }
-    printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
-    seq++;
+    if (compteur == NB_RENVOIS) return -1; 
+    // printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
+    seq=(seq+1)%2;
     return sent;
 }
 
@@ -168,16 +179,16 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     };
 
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
-    printf("received message with seq = %d\n",pdu.header.seq_num);
+    // printf("received message with seq = %d\n",pdu.header.seq_num);
 
-    if ( pdu.header.seq_num%2 == ack%2 ) {
-        ack+=1;
+    if ( pdu.header.seq_num == ack ) {
+        ack=(ack+1)%2;
         new_pdu.header.ack_num = ack;
         app_buffer_put(pdu.payload);
     }
 // avec le printf : ça marche avec tsock_texte
 // sans le printf, même avec le sleep, ça marche pas : perte du paquet en boucle/ack non reçus? 
-    printf("sending ack with ack_num = %d\n",new_pdu.header.ack_num);
+    //printf("sending ack with ack_num = %d\n",new_pdu.header.ack_num);
 
-    int res = IP_send(new_pdu,dest);
+    IP_send(new_pdu,dest);
 }
