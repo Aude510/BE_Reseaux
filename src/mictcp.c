@@ -5,8 +5,8 @@
 // v3 marche bien avec texte, video marche pas même avec un pourcent de perte... 
 
 #define TIMEOUT 100
-#define LOSS 1 // loss percentage in network
-#define TAILLE_FENETRE 100 // paramètres à faire évoluer 
+#define LOSS 50 // loss percentage in network
+#define TAILLE_FENETRE 5 // paramètres à faire évoluer 
 #define ACCEPTABLE_LOSS 1 //nbs de messages perdus acceptés sur un total de taille_fenêtre 
 //TRY changer nb_renvois pour un nb plus petit 
 
@@ -234,6 +234,10 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 
     if ( pdu.header.seq_num == ack ) {
         ack=(ack+1)%TAILLE_FENETRE;
+        new_pdu.header.ack_num = ack;
+        app_buffer_put(pdu.payload);
+    }else if (pdu.header.seq_num>ack){ // cas où un message a été perdu à l'envoi (non reçu)
+        ack = (pdu.header.seq_num+1)%TAILLE_FENETRE ; // re synchronisation du ack 
         new_pdu.header.ack_num = ack;
         app_buffer_put(pdu.payload);
     }
