@@ -79,16 +79,15 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
     loss_count[1] a été mis à 1 par une perte précédente 
     le compteur lost_mess doit être décrémenté car fenêtre glissante 
     loss_count[1] doit être mis à 0 
-    */ 
-
+*/
 void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
     if (is_lost){
         *lost_mess+=!loss_count[seq]; 
-        loss_count[seq]=1; 
+        loss_count[seq]=1;
     }else{
-        *lost_mess-=loss_count[seq]; 
-        loss_count[seq]=0; 
-    }   
+        *lost_mess-=loss_count[seq];
+        loss_count[seq]=0;
+    }
 }
 
 
@@ -123,7 +122,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
             .data=mesg,
             .size=mesg_size
         }
-    }; 
+    };
 
 
     //-------------------gestion fiabilité partielle-----------------------
@@ -207,6 +206,7 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
+    // todo gerer cas de mettre à jour le akc num dans le cas où on a perdu un packet qu'on a pas reçu en réception
     static int ack = 0;
     mic_tcp_sock_addr dest;
 
