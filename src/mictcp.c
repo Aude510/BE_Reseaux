@@ -16,6 +16,15 @@
 // variable globale socket initialisée avec valeurs par défaut 
 mic_tcp_sock sk = {-1,-1,{NULL,0,0}}; 
 
+
+int taille_fenetre=TAILLE_FENETRE; 
+int acceptable_loss=ACCEPTABLE_LOSS; 
+
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER; 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; 
+
+mic_tcp_sock_addr dest; 
+
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
  * Retourne le descripteur du socket ou bien -1 en cas d'erreur
@@ -54,7 +63,10 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr) // V1
 int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr) // V4
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-    return 0; // todo faire la fonction (ou remettre retour à -1?)
+    pthread_cond_wait(&cond,&mutex); 
+    sk.state=ESTABLISHED; 
+
+    return 0; // impossible d'échouer, si pas de connexion on continue juste à attendre 
 }
 
 /*
@@ -64,17 +76,42 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr) // V4
 int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-    return 0; // todo faire la fonction (ou remettre retour à -1?)
+    mic_tcp_pdu pdu_syn = {
+    .header = {
+            .source_port=sk.addr.port, 
+            .dest_port=addr.port,
+            .seq_num=0,
+            .ack_num=0,
+            .ack= 0,
+            .syn=1,
+            .fin=0,
+            .taille_fenetre=TAILLE_FENETRE, 
+            .acceptable_loss=ACCEPTABLE_LOSS
+        }
+    }; 
+    IP_send(pdu_syn,addr); 
+    mic_tcp_pdu pdu_syn_ack; 
+    int attente = IP_recv(&pdu_syn_ack,&addr,TIMEOUT); 
+    // si timeout expiré ou pdu reçu n'est pas un syn ack, échec 
+    if (attente==-1 || !(pdu_syn_ack.header.ack==1 && pdu_syn_ack.header.syn==1)){
+        printf("échec de connexion\n"); 
+        return(-1);  
+    }
+    taille_fenetre=pdu_syn_ack.header.taille_fenetre; 
+    acceptable_loss=pdu_syn_ack.header.acceptable_loss; 
+    sk.state=ESTABLISHED; 
+    return (0); 
+
 }
 
 
 
 /* Fonctionnement 
-    ex : après un envoi échoué et seq = 1 on a ce tableau : 
+    ex : si après un envoi échoué et seq = 1 on a ce tableau : 
     [0,1,0,0,0,0,0...]
     loss_count[1] a été mis à 1 par une perte précédente 
     le compteur lost_mess ne doit pas être modifié car fenêtre glissante 
-    ex2 : après un envoi réussi et seq = 1 on a ce tableau : 
+    ex2 : si après un envoi réussi et seq = 1 on a ce tableau : 
     [0,1,0,0,0,0,0...]
     loss_count[1] a été mis à 1 par une perte précédente 
     le compteur lost_mess doit être décrémenté car fenêtre glissante 
@@ -103,15 +140,11 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 
     // -------------------encapsulation du message ------------------------------------
     static int seq = 0; 
-    
-
-
-
-    mic_tcp_sock_addr dest; // TODO trouver la vraie adresse à envoyer (sera variable globale une fois le connect fait)
+        
     mic_tcp_pdu pdu ={
         .header = {
             .source_port=sk.addr.port, 
-            .dest_port=dest.port, // TODO no leer memoria random 
+            .dest_port=dest.port, 
             .seq_num=seq,
             .ack_num=0,
             .ack= 0,
@@ -134,6 +167,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 
     // ----------------- envoi ----------------------
     int sent = IP_send(pdu,dest); 
+    
     // ----------------- attente du ack---------------
     int attente = -1; 
     mic_tcp_pdu pdu_ack ;
@@ -206,10 +240,23 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-    // todo gerer cas de mettre à jour le akc num dans le cas où on a perdu un packet qu'on a pas reçu en réception
-    static int ack = 0;
-    mic_tcp_sock_addr dest;
 
+    static int ack = 0;
+    
+
+    if (pdu.header.syn==1){
+        mic_tcp_pdu pdu_syn_ack = {
+            .header= {
+                .syn = 1, 
+                .ack =1, 
+                .acceptable_loss=ACCEPTABLE_LOSS,
+                .taille_fenetre = TAILLE_FENETRE
+            }
+        };
+        dest=addr; 
+        IP_send(pdu_syn_ack,dest); 
+        pthread_cond_broadcast(&cond); 
+    }
 
     // creation du message d'ACK
     // by default we set the value to ack and then if we receive the message we augment it by 1 to demand the new message
