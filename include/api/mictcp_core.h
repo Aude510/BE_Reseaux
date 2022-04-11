@@ -28,7 +28,8 @@ unsigned long get_now_time_usec();
 #ifndef API_SC_Port
   #define API_SC_Port 8525
 #endif
-#define API_HD_Size 15
+#define API_HD_Size 24 // sizeof(struct mic_tcp_header) en tenant en compte le padding! 
+// erreur grave car change en fonction du processeur... 
 
 typedef struct ip_payload
 {

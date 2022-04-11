@@ -1,20 +1,17 @@
 #include <mictcp.h>
 #include <api/mictcp_core.h>
 
-// TODO : faire valider v3 par prof et passer à v4.2
-// v3 marche bien avec texte, video marche pas même avec un pourcent de perte... 
+
 
 #define TIMEOUT 100
 #define LOSS 50 // loss percentage in network
-#define TAILLE_FENETRE 5 // paramètres à faire évoluer 
+#define TAILLE_FENETRE 5 
 #define ACCEPTABLE_LOSS 1 //nbs de messages perdus acceptés sur un total de taille_fenêtre 
-//TRY changer nb_renvois pour un nb plus petit 
 
 #define NB_RENVOIS 5 // nb de tentatives d'envoi du message avant abandon 
 
-// TODO : enlever les prints de debug et autres trucs inutiles 
+
 // variable globale socket initialisée avec valeurs par défaut 
-// TODO : vérifier cohérence des états du socket 
 mic_tcp_sock sk = {-1,-1,{NULL,0,0}}; 
 
 
@@ -105,14 +102,14 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
     IP_send(pdu_syn,addr); 
     mic_tcp_pdu pdu_syn_ack; 
     int attente = IP_recv(&pdu_syn_ack,&addr,TIMEOUT); 
-    // si timeout expiré ou pdu reçu n'est pas un syn ack, échec 
+    // si timeout expiré ou que le pdu reçu n'est pas un syn ack, échec 
     if (attente==-1 || !(pdu_syn_ack.header.ack==1 && pdu_syn_ack.header.syn==1)){
-        printf("échec de connexion\n"); 
         return(-1);  
     }
     taille_fenetre=pdu_syn_ack.header.taille_fenetre; 
     acceptable_loss=pdu_syn_ack.header.acceptable_loss; 
     sk.state=ESTABLISHED; 
+    // création du thread pour l'envoi (lecture dans le buffer)
     pthread_t tid; 
     pthread_create(&tid,NULL,thread_envoi,NULL); 
     return (0); 
@@ -140,6 +137,7 @@ void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
         *lost_mess-=loss_count[seq];
         loss_count[seq]=0;
     }
+    // print de suivi de la fenêtre glissante 
     printf("lost_mess : %d\n",*lost_mess);
     printf("loss_count : [");
     for (int i=0; i<TAILLE_FENETRE; i++){
@@ -156,7 +154,9 @@ void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
  */
 int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 {
-    if (mic_sock!=sk.fd) return (-1);  
+    // erreur si le socket n'est pas actif 
+    if (mic_sock!=sk.fd || sk.state!=ESTABLISHED) return (-1);  
+
     // création de la nouvelle case à mettre dans le buffer
     case_buffer * nouveau = malloc(sizeof(case_buffer)); 
     nouveau->suivant=NULL; 
@@ -182,13 +182,17 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 // thread qui appelle en boucle mic_tcp_send si il y a des données dans le buffer 
 void * thread_envoi(void * args){
     while(1){
+        // bloquage du mutex pour l'accès au buffer 
         pthread_mutex_lock(&mutex_send); 
+
+        // rien ne se passe si le buffer est vide 
         if (buffer_envoi.taille==0) {
             pthread_mutex_unlock(&mutex_send);
             usleep(100);
             continue;
         }
 
+        // récupération dans le buffer 
         case_buffer * avant_dernier = buffer_envoi.premier; 
         case_buffer * a_envoyer = buffer_envoi.dernier; 
         for (int i = 0; i < buffer_envoi.taille-2; i++){
@@ -198,6 +202,7 @@ void * thread_envoi(void * args){
         buffer_envoi.taille--; 
         pthread_mutex_unlock(&mutex_send); 
 
+        // envoi des données 
         mic_tcp_sync_send(a_envoyer->data,a_envoyer->size); 
         free(a_envoyer); 
 
@@ -206,7 +211,7 @@ void * thread_envoi(void * args){
     return NULL; 
 }
 
-// fonction d'envoi; prends les données dans le buffer 
+// fonction d'envoi; prend les données dans le buffer 
 int mic_tcp_sync_send(char* mesg, int mesg_size){
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
 
@@ -260,7 +265,6 @@ int mic_tcp_sync_send(char* mesg, int mesg_size){
             }
             if (attente==-1) {
                 update_loss(&lost_mess,loss_count,seq,1); 
-                //sent = -1; 
             }else{
                 update_loss(&lost_mess,loss_count,seq,0);
             }
@@ -268,11 +272,6 @@ int mic_tcp_sync_send(char* mesg, int mesg_size){
     }else{
         update_loss(&lost_mess,loss_count,seq,0); 
     }
-    
-
-
-
-    // printf("numéro d'ack reçu : %d, numéro de séquence : %d\n",pdu_ack.header.ack_num,seq);
     seq=(seq+1)%TAILLE_FENETRE;
     return sent;
 }
@@ -317,10 +316,11 @@ int mic_tcp_close (int socket)
  */
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
 {
-
+    printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
+ 
     static int ack = 0;
     
-
+    // gestion du accept 
     if (pdu.header.syn==1){
         mic_tcp_pdu pdu_syn_ack = {
             .header= {
@@ -336,7 +336,6 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
     }
 
     // creation du message d'ACK
-    // by default we set the value to ack and then if we receive the message we augment it by 1 to demand the new message
     mic_tcp_pdu new_pdu = {
         .header = {
             .source_port = pdu.header.dest_port,
@@ -353,9 +352,6 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
         }
     };
 
-    printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
-    // printf("received message with seq = %d\n",pdu.header.seq_num);
-
     if ( pdu.header.seq_num == ack ) {
         ack=(ack+1)%TAILLE_FENETRE;
         new_pdu.header.ack_num = ack;
@@ -365,9 +361,6 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
         new_pdu.header.ack_num = ack;
         app_buffer_put(pdu.payload);
     }
-// avec le printf : ça marche avec tsock_texte
-// sans le printf, même avec le sleep, ça marche pas : perte du paquet en boucle/ack non reçus? 
-    //printf("sending ack with ack_num = %d\n",new_pdu.header.ack_num);
 
     IP_send(new_pdu,dest);
 }
