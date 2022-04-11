@@ -91,6 +91,6 @@ Manuel d'utilisation de git: https://git-scm.com/docs
 
 
 
-# Pourqoi faire un protocole pour transporter de la video ?
-On veut tolerer un pourcentage de pertes et donc on sera capables de transporter la video avec un débit de donnes inferieur.
+# Pourquoi faire un protocole pour transporter de la video ?
+On veut tolérer un certain pourcentage de pertes et donc on sera capables de transporter la video avec un débit de donnes inferieur offert par le réseau.
 
