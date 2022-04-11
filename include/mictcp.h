@@ -15,6 +15,20 @@
 #include <sys/time.h>
 
 
+// structure de données buffer pour asynchronisme au niveau de l'envoi 
+typedef struct case_buffer_struct{
+    struct case_buffer_struct * suivant; 
+    char * data; 
+    int size; 
+}case_buffer; 
+
+typedef struct {
+    int taille; 
+    case_buffer * premier; 
+    case_buffer * dernier; 
+}buffer_send; 
+
+
 /*
  * Etats du protocole (les noms des états sont donnés à titre indicatif
  * et peuvent être modifiés)

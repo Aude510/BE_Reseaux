@@ -14,16 +14,29 @@
 
 // TODO : enlever les prints de debug et autres trucs inutiles 
 // variable globale socket initialisée avec valeurs par défaut 
+// TODO : vérifier cohérence des états du socket 
 mic_tcp_sock sk = {-1,-1,{NULL,0,0}}; 
 
 
 int taille_fenetre=TAILLE_FENETRE; 
 int acceptable_loss=ACCEPTABLE_LOSS; 
 
-pthread_cond_t cond = PTHREAD_COND_INITIALIZER; 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; 
+pthread_cond_t cond_accept = PTHREAD_COND_INITIALIZER; 
+pthread_mutex_t mutex_accept = PTHREAD_MUTEX_INITIALIZER; 
 
 mic_tcp_sock_addr dest; 
+
+// ---------------- gestion de l'asynchronisme en envoi --------------------------
+
+pthread_mutex_t mutex_send = PTHREAD_MUTEX_INITIALIZER; 
+
+buffer_send buffer_envoi = {0,NULL,NULL};  
+
+int mic_tcp_sync_send(char* mesg, int mesg_size);
+void* thread_envoi(void* args);
+
+//------------------------------------------------------------------------------------
+
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -63,7 +76,7 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr) // V1
 int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr) // V4
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
-    pthread_cond_wait(&cond,&mutex); 
+    pthread_cond_wait(&cond_accept,&mutex_accept); 
     sk.state=ESTABLISHED; 
 
     return 0; // impossible d'échouer, si pas de connexion on continue juste à attendre 
@@ -100,6 +113,8 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) // V4
     taille_fenetre=pdu_syn_ack.header.taille_fenetre; 
     acceptable_loss=pdu_syn_ack.header.acceptable_loss; 
     sk.state=ESTABLISHED; 
+    pthread_t tid; 
+    pthread_create(&tid,NULL,thread_envoi,NULL); 
     return (0); 
 
 }
@@ -136,11 +151,63 @@ void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
 
 
 /*
- * Permet de réclamer l’envoi d’une donnée applicative
- * Retourne la taille des données envoyées, et -1 en cas d'erreur
+ * Permet de réclamer l’envoi d’une donnée applicative par l'application 
+ * Retourne la taille des données passées au buffer, et -1 en cas d'erreur
  */
 int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
 {
+    if (mic_sock!=sk.fd) return (-1);  
+    // création de la nouvelle case à mettre dans le buffer
+    case_buffer * nouveau = malloc(sizeof(case_buffer)); 
+    nouveau->suivant=NULL; 
+    nouveau->size=mesg_size; 
+    nouveau->data=malloc(sizeof(char)*mesg_size);
+    memcpy(nouveau->data,mesg,mesg_size); 
+
+    // bloquage du mutex 
+    pthread_mutex_lock(&mutex_send); 
+    if (buffer_envoi.premier==NULL){
+        buffer_envoi.premier=nouveau; 
+        buffer_envoi.dernier=nouveau; 
+    }else{
+        buffer_envoi.dernier->suivant = nouveau; 
+        buffer_envoi.dernier = nouveau ; 
+    }
+    buffer_envoi.taille++; 
+    pthread_mutex_unlock(&mutex_send); 
+    return mesg_size; 
+}
+
+
+// thread qui appelle en boucle mic_tcp_send si il y a des données dans le buffer 
+void * thread_envoi(void * args){
+    while(1){
+        pthread_mutex_lock(&mutex_send); 
+        if (buffer_envoi.taille==0) {
+            pthread_mutex_unlock(&mutex_send);
+            usleep(100);
+            continue;
+        }
+
+        case_buffer * avant_dernier = buffer_envoi.premier; 
+        case_buffer * a_envoyer = buffer_envoi.dernier; 
+        for (int i = 0; i < buffer_envoi.taille-2; i++){
+            avant_dernier=avant_dernier->suivant; 
+        }
+        avant_dernier->suivant=NULL; 
+        buffer_envoi.taille--; 
+        pthread_mutex_unlock(&mutex_send); 
+
+        mic_tcp_sync_send(a_envoyer->data,a_envoyer->size); 
+        free(a_envoyer); 
+
+    }
+
+    return NULL; 
+}
+
+// fonction d'envoi; prends les données dans le buffer 
+int mic_tcp_sync_send(char* mesg, int mesg_size){
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
 
 
@@ -210,6 +277,8 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
     return sent;
 }
 
+
+
 /*
  * Permet à l’application réceptrice de réclamer la récupération d’une donnée
  * stockée dans les buffers de réception du socket
@@ -263,7 +332,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
         };
         dest=addr; 
         IP_send(pdu_syn_ack,dest); 
-        pthread_cond_broadcast(&cond); 
+        pthread_cond_broadcast(&cond_accept); 
     }
 
     // creation du message d'ACK
