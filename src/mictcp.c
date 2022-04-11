@@ -125,6 +125,12 @@ void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
         *lost_mess-=loss_count[seq];
         loss_count[seq]=0;
     }
+    printf("loss_mess : %d\n",*lost_mess);
+     printf("tableau : [");
+    for (int i=0; i<TAILLE_FENETRE; i++){
+        printf("%d ",loss_count[i]); 
+    }
+    printf("]\n"); 
 }
 
 
@@ -185,9 +191,11 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size) // v1
                 attente = IP_recv(&pdu_ack,&dest,TIMEOUT);
                 tentatives++; 
             }
-            if (tentatives == NB_RENVOIS) {
+            if (attente==-1) {
                 update_loss(&lost_mess,loss_count,seq,1); 
                 //sent = -1; 
+            }else{
+                update_loss(&lost_mess,loss_count,seq,0);
             }
         }
     }else{
