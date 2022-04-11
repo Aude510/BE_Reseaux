@@ -125,8 +125,8 @@ void update_loss(int * lost_mess, char * loss_count, int seq, int is_lost){
         *lost_mess-=loss_count[seq];
         loss_count[seq]=0;
     }
-    printf("loss_mess : %d\n",*lost_mess);
-     printf("tableau : [");
+    printf("lost_mess : %d\n",*lost_mess);
+    printf("loss_count : [");
     for (int i=0; i<TAILLE_FENETRE; i++){
         printf("%d ",loss_count[i]); 
     }
